@@ -40,7 +40,6 @@
 
     <script>
         const API_BASE_URL = 'https://rfaazro0f3.execute-api.us-east-1.amazonaws.com';
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzu0ATV02HGmeLiE5S44HgZ6iIhoqbyocC2TKY5RL7yE1GVy1CJJiurzGIvJc8f4n2hRA/exec';
 
         let pessoas = [];
 
@@ -49,7 +48,7 @@
             container.innerHTML = '<div class="loading">⏳ Carregando dados...</div>';
             
             try {
-                const response = await fetch(API_BASE_URL + '/horarios');
+                const response = await fetch(`${API_BASE_URL}/horarios`);
                 const csvData = await response.text();
                 processarCSV(csvData);
             } catch (error) {
@@ -60,19 +59,14 @@
 
         function processarCSV(csvText) {
             const linhas = csvText.trim().split('\n');
-            
             const container = document.getElementById('container');
             container.innerHTML = '';
             pessoas = [];
 
-            // Pula o cabeçalho (linha 1)
             for (let i = 1; i < linhas.length; i++) {
                 const colunas = parseCSVLine(linhas[i]);
                 
-                if (colunas.length < 4) {
-                    console.warn(`⚠️ Linha ${i} ignorada - menos de 4 colunas:`, colunas);
-                    continue;
-                }
+                if (colunas.length < 4) continue;
 
                 const idEquipe = colunas[0].trim();
                 const nome = colunas[1].trim();
@@ -80,7 +74,7 @@
                 const status = parseInt(colunas[3].trim());
 
                 const pessoa = {
-                    linha: i + 1, // linha na planilha (considerando cabeçalho)
+                    linha: i + 1,
                     idEquipe,
                     nome,
                     equipe,
@@ -89,6 +83,7 @@
                 pessoas.push(pessoa);
                 criarCard(pessoa);
             }
+
             atualizarContadores();
             document.getElementById('contador').style.display = 'block';
             document.getElementById('buscaContainer').style.display = 'flex';
@@ -157,35 +152,9 @@
                 if (idx !== -1) {
                     score += 10;
                     pos = idx + 1;
-                    if (i > 0 && idx === pos) score += 5;
                 } else score -= 5;
             }
             return Math.max(0, score);
-        }
-
-        function calcularDistanciaLevenshtein(str1, str2) {
-            const m = str1.length;
-            const n = str2.length;
-            const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-
-            for (let i = 0; i <= m; i++) dp[i][0] = i;
-            for (let j = 0; j <= n; j++) dp[0][j] = j;
-
-            for (let i = 1; i <= m; i++) {
-                for (let j = 1; j <= n; j++) {
-                    if (str1[i - 1] === str2[j - 1]) {
-                        dp[i][j] = dp[i - 1][j - 1];
-                    } else {
-                        dp[i][j] = Math.min(
-                            dp[i - 1][j] + 1,    // deletar
-                            dp[i][j - 1] + 1,    // inserir
-                            dp[i - 1][j - 1] + 1 // substituir
-                        );
-                    }
-                }
-            }
-
-            return dp[m][n];
         }
 
         function criarCard(pessoa) {
@@ -196,9 +165,8 @@
             card.id = `card-${pessoa.linha}`;
             
             const statusClass = pessoa.status === 0 ? 'status-presente' : 'status-ausente';
-            const statusTexto = pessoa.status === 0 ? 'Não Chegou' : ' Chegou ';
+            const statusTexto = pessoa.status === 0 ? 'Não Chegou' : 'Chegou';
             
-            // Cria elementos separadamente para garantir que o evento funcione
             card.innerHTML = `
                 <div class="nome">${pessoa.nome}</div>
                 <div class="info">
@@ -207,92 +175,51 @@
                 </div>
             `;
             
-            // Cria o botão separadamente e adiciona o evento
             const btn = document.createElement('button');
             btn.className = `btn-toggle ${statusClass}`;
             btn.textContent = statusTexto;
-            btn.addEventListener('click', () => {
-                
-                // Adiciona loading
+
+            btn.onclick = async () => {
                 btn.disabled = true;
                 btn.classList.add('btn-loading');
-                const textoOriginal = btn.textContent;
-                
-                toggleStatus(pessoa.linha).finally(() => {
-                    // Remove loading depois de 2 segundos (tempo pra receber callback)
-                    setTimeout(() => {
-                        btn.disabled = false;
-                        btn.classList.remove('btn-loading');
-                        // Se o callback não atualizou, restaura o texto
-                        if (btn.textContent === '') {
-                            btn.textContent = textoOriginal;
-                        }
-                    }, 6000);
-                });
-            });
-            
+
+                try {
+                    const r = await fetch(`${API_BASE_URL}/toggle?row=${pessoa.linha}`);
+                    const data = await r.json();
+                    atualizarInterface(data);
+                } catch (err) {
+                    alert("Erro ao atualizar status");
+                }
+
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.classList.remove('btn-loading');
+                }, 800);
+            };
+
             card.appendChild(btn);
             container.appendChild(card);
         }
 
-        async function toggleStatus(linha) {
-            
-            try {
-                const url = `${APPS_SCRIPT_URL}?row=${linha}&callback=atualizarInterface`;
-                // JSONP
-                const script = document.createElement('script');
-                script.src = url;
-                document.head.appendChild(script);
-                // Remove script após uso
-                setTimeout(() => {
-                    script.remove();
-                }, 5000);
-                
-            } catch (error) {
-                console.error('🔴 Erro ao toggle status:', error);
-                alert('❌ Erro ao atualizar status');
-            }
-        }
-
         function atualizarInterface(resp) {
-            
-            if (resp.sucesso) {
-                
-                const pessoa = pessoas.find(p => p.linha === resp.linha);
-                if (pessoa) {
-                    pessoa.status = resp.depois;
-                } else {
-                    console.warn('⚠️ Pessoa não encontrada no array para linha:', resp.linha);
-                }
+            if (!resp || !resp.sucesso) return;
 
-                const card = document.getElementById(`card-${resp.linha}`);
-                if (card) {
-                    const btn = card.querySelector('.btn-toggle');
-                    
-                    // Remove loading
-                    btn.disabled = false;
-                    btn.classList.remove('btn-loading');
-                    
-                    // Remove classes antigas
-                    btn.classList.remove('status-presente', 'status-ausente');
-                    
-                    // Adiciona nova classe e texto
-                    if (resp.depois === 0) {
-                        btn.classList.add('status-presente');
-                        btn.textContent = '✓ Não Chegou';
-                    } else {
-                        btn.classList.add('status-ausente');
-                        btn.textContent = '✗ Chegou';
-                    }
-                    
-                    atualizarContadores();
-                } else {
-                    console.error('🔴 Card não encontrado:', `card-${resp.linha}`);
-                }
+            const pessoa = pessoas.find(p => p.linha === resp.linha);
+            pessoa.status = resp.depois;
+
+            const card = document.getElementById(`card-${resp.linha}`);
+            const btn = card.querySelector('.btn-toggle');
+
+            btn.classList.remove('status-presente', 'status-ausente');
+            if (resp.depois === 0) {
+                btn.textContent = 'Não Chegou';
+                btn.classList.add('status-presente');
             } else {
-                console.error('🔴 Resposta com erro:', resp.error);
-                alert('❌ Erro: ' + resp.error);
+                btn.textContent = 'Chegou';
+                btn.classList.add('status-ausente');
             }
+
+            atualizarContadores();
         }
 
         function atualizarContadores() {
@@ -327,7 +254,6 @@
             return result;
         }
 
-        // Carrega automaticamente ao abrir
         window.onload = carregarDados;
     </script>
 </body>

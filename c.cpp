@@ -6,7 +6,7 @@ using namespace std;
 #define int long long int
 
 signed main() {
-    int n = 1143, m = 92;
+    int n = 1413, m = 89;
     vector<string> v1,v2, v5; // nome, id, kit
     map<string, pair<string,string>> mapa1;
     for(int i = 0; i < n; i++){
